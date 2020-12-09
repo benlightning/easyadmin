@@ -27,6 +27,16 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
         url: function (url) {
             return '/' + CONFIG.ADMIN + '/' + url;
         },
+        //by zhanglei 复制到剪贴板
+        copyToClipboard:function(content, input){
+            input = document.createElement('textarea');
+            input.style.position = 'absolute', input.style.left = '-100000px';
+            input.style.width = '1px', input.style.height = '1px', input.innerText = content;
+            document.body.appendChild(input), input.select(), setTimeout(function () {
+                document.execCommand('Copy') ? admin.msg.tips('复制成功') : admin.msg.tips('复制失败，请使用鼠标操作复制！');
+                document.body.removeChild(input);
+            }, 100);
+        },
         checkAuth: function (node, elem) {
             if (CONFIG.IS_SUPER_ADMIN) {
                 return true;
@@ -190,6 +200,14 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                     extend: 'data-table-id="' + options.id + '"'
                 }];
 
+                //TODO: by zhanglei 表格顶部右侧工具栏操作
+                options.defaultToolbar = !options.search?[]:[{
+                    title: '搜索',
+                    layEvent: 'TABLE_SEARCH',
+                    icon: 'layui-icon-search',
+                    extend: 'data-table-id="' + options.id + '"'
+                }];
+
                 // 判断是否为移动端
                 if (admin.checkMobile()) {
                     options.defaultToolbar = !options.search ? ['filter'] : ['filter', {
@@ -212,7 +230,7 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                 }
 
                 // 初始化表格左上方工具栏
-                options.toolbar = options.toolbar || ['refresh', 'add', 'delete', 'export'];
+                options.toolbar = options.toolbar || ['refresh', 'add', 'delete'];//, 'export'
                 options.toolbar = admin.table.renderToolbar(options.toolbar, options.elem, options.id, options.init);
 
                 // 判断是否有操作列表权限
@@ -249,6 +267,10 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                     } else if (v === 'export') {
                         if (admin.checkAuth('export', elem)) {
                             toolbarHtml += '<button class="layui-btn layui-btn-sm layui-btn-success easyadmin-export-btn" data-url="' + init.export_url + '" data-table-export="' + tableId + '"><i class="fa fa-file-excel-o"></i> 导出</button>\n';
+                        }
+                    } else if (v === 'import') {
+                        if (admin.checkAuth('import', elem)) {
+                            toolbarHtml += '<button class="layui-btn layui-btn-sm layui-btn-warm easyadmin-import-btn" data-import="' + init.import_url + '" data-table-import="' + tableId + '"><i class="fa fa-cloud-upload"></i> 导入</button>\n';
                         }
                     } else if (typeof v === "object") {
                         $.each(v, function (ii, vv) {
@@ -424,6 +446,12 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                 formatToolbar.class = formatToolbar.class !== '' ? 'class="' + formatToolbar.class + '" ' : '';
                 if (toolbar.method === 'open') {
                     formatToolbar.method = formatToolbar.method !== '' ? 'data-open="' + formatToolbar.url + '" data-title="' + formatToolbar.title + '" ' : '';
+                } else if(toolbar.method === 'location') {
+                    formatToolbar.method = formatToolbar.method !== '' ? 'data-location="' + formatToolbar.url + '" data-title="' + formatToolbar.title + '" ' : '';
+                } else if(toolbar.method === 'choose') {//如用户列表中选择多个用户
+                    formatToolbar.method = formatToolbar.method !== '' ? 'data-choose="' + formatToolbar.url + '" data-title="' + formatToolbar.title + '" ' : '';
+                } else if(toolbar.method === 'import') {//导入excel
+                    formatToolbar.method = formatToolbar.method !== '' ? 'data-import="' + formatToolbar.url + '" data-title="' + formatToolbar.title + '" ' : '';
                 } else {
                     formatToolbar.method = formatToolbar.method !== '' ? 'data-request="' + formatToolbar.url + '" data-title="' + formatToolbar.title + '" ' : '';
                 }
@@ -450,6 +478,8 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                 formatOperat.class = formatOperat.class !== '' ? 'class="' + formatOperat.class + '" ' : '';
                 if (operat.method === 'open') {
                     formatOperat.method = formatOperat.method !== '' ? 'data-open="' + formatOperat.url + '" data-title="' + formatOperat.title + '" ' : '';
+                } else if(operat.method === 'location') {
+                    formatOperat.method = formatOperat.method !== '' ? 'data-location="' + formatOperat.url + '" data-title="' + formatOperat.title + '" ' : '';
                 } else {
                     formatOperat.method = formatOperat.method !== '' ? 'data-request="' + formatOperat.url + '" data-title="' + formatOperat.title + '" ' : '';
                 }
@@ -574,9 +604,20 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                             operat.text = operat.text || operat.title;
                             operat.extend = operat.extend || '';
                             operat.url = admin.table.toolSpliceUrl(operat.url, operat.field, data);
+                            if(operat.callback && typeof operat.callback =='function'){
+                                var ret = operat.callback(data);
+                                if(ret === false){
+                                    return true;
+                                }
+                                if(ret !== true){
+                                    html += ret;
+                                    return true;
+                                }
+                            }
                             if (admin.checkAuth(operat.auth, elem)) {
                                 html += admin.table.buildOperatHtml(operat);
                             }
+
                         });
                     }
                 });
@@ -609,12 +650,16 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                 } catch (e) {
                     var value = undefined;
                 }
-                if (value === undefined) {
+                if (value === undefined || value === null) {
+                    // value = BASE_URL + 'admin/images/upload-icons/image.png';
                     return '<img style="max-width: ' + option.imageWidth + 'px; max-height: ' + option.imageHeight + 'px;" src="' + value + '" data-image="' + title + '">';
                 } else {
                     var values = value.split(option.imageSplit),
                         valuesHtml = [];
                     values.forEach((value, index) => {
+                        if (!/\.(gif|jpg|jpeg|png|GIF|JPEG|JPG|PNG)$/.test(value)) {
+                            value = value = BASE_URL + 'admin/images/upload-icons/file.png';
+                        }
                         valuesHtml.push('<img style="max-width: ' + option.imageWidth + 'px; max-height: ' + option.imageHeight + 'px;" src="' + value + '" data-image="' + title + '">');
                     });
                     return valuesHtml.join(option.imageJoin);
@@ -786,7 +831,11 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                             data: _data,
                         }, function (res) {
                             if (modifyReload) {
-                                table.reload(tableId);
+                                if($('[data-treetable-refresh]').length>0){
+                                    $('[data-treetable-refresh]').trigger("click")
+                                }else{
+                                    table.reload(tableId);
+                                }
                             }
                         }, function (res) {
                             admin.msg.error(res.msg, function () {
@@ -862,6 +911,9 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
             // 初始化图片显示以及监听上传事件
             admin.api.upload();
 
+            // 初始化表格工具栏导入excel上传事件
+            admin.api.import();
+
             // 监听富文本初始化
             admin.api.editor();
 
@@ -879,11 +931,28 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                 var openTips = layer.tips('点击行内容可以进行修改', $(this), {tips: [2, '#e74c3c'], time: 4000});
             });
 
+            //直接跳转链接
+            $('body').on('click', '[data-location]', function () {
+                var clienWidth = $(this).attr('data-width'),
+                    clientHeight = $(this).attr('data-height'),
+                    dataFull = $(this).attr('data-full'),
+                    checkbox = $(this).attr('data-checkbox'),
+                    url = $(this).attr('data-location'),
+                    res = $(this).attr('data-res'),
+                    tableId = $(this).attr('data-table');
+                if(res==1){
+                    //资源路径
+                    location.href = url;
+                }else{
+                    location.href = admin.url(url);
+                }
+            });
+
             // 监听弹出层的打开
             $('body').on('click', '[data-open]', function () {
 
-                var clienWidth = $(this).attr('data-width'),
-                    clientHeight = $(this).attr('data-height'),
+                var clienWidth = $(this).attr('data-width')||'80%',
+                    clientHeight = $(this).attr('data-height')||'80%',
                     dataFull = $(this).attr('data-full'),
                     checkbox = $(this).attr('data-checkbox'),
                     url = $(this).attr('data-open'),
@@ -993,6 +1062,9 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                     direct = $(this).attr('data-direct'),
                     field = $(this).attr('data-field') || 'id';
 
+                //by zhanglei
+                var pageload = $(this).attr('data-reloadthis');
+
                 title = title || '确定进行该操作？';
 
                 if (direct === 'true') {
@@ -1028,7 +1100,16 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                         data: postData,
                     }, function (res) {
                         admin.msg.success(res.msg, function () {
-                            table.reload(tableId);
+                            if(pageload == 1){
+                                parent.layui.table.reload(tableId);
+                                location.reload();
+                                return false;
+                            }
+                            if($('[data-treetable-refresh]').length>0){
+                                $('[data-treetable-refresh]').trigger("click")
+                            }else{
+                                table.reload(tableId);
+                            }
                         });
                     })
                 });
@@ -1076,6 +1157,60 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                 return false;
             });
 
+            //todo: by zhanglei 数据表格多选
+            $('body').on('click', '[data-choose]', function () {
+                var tableId = $(this).attr('data-table'),
+                    res_id = $(this).attr('data-relation-id'),
+                    type = $(this).attr('data-type'),
+                    url = $(this).attr('data-choose');
+
+                var pageload = $(this).attr('data-reloadthis');
+                tableId = tableId || init.table_render_id;
+
+                url = url !== undefined ? admin.url(url) : window.location.href;
+                /*var checkStatus = table.checkStatus(tableId),
+                    data = checkStatus.data;
+                if (data.length <= 0) {
+                    admin.msg.error('请勾选需要选择的数据');
+                    return false;
+                }
+                var ids = [];
+                $.each(data, function (i, v) {
+                    ids.push(v.id);
+                });*/
+                if (select_ids.length <= 0) {
+                    admin.msg.error('请勾选需要选择的数据');
+                    return false;
+                }
+
+                admin.msg.confirm('确定选择已选中的数据？', function () {
+                    admin.request.post({
+                        url: url,
+                        data: {
+                            id: select_ids,
+                            res_id:res_id,
+                            type:type
+                        },
+                    }, function (res) {
+                        admin.msg.success(res.msg, function () {
+                            // table.reload(tableId);
+                            var options = {};
+                            if(pageload == 1){
+                                options.refreshFrame = true;
+                            }else{
+                                options.refreshTable = true;
+                            }
+                            admin.api.closeCurrentOpen(options);
+                        });
+                    });
+                });
+                return false;
+            });
+
+            /*! by zhanglei 注册 data-copy 事件行为 */
+            $('body').on('click', '[data-copy]', function () {
+                admin.copyToClipboard(this.getAttribute('data-copy'));
+            });
         },
         api: {
             form: function (url, data, ok, no, ex, refreshTable) {
@@ -1189,6 +1324,9 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
 
                             if (typeof preposeCallback === 'function') {
                                 dataField = preposeCallback(dataField);
+                                if(dataField === false){
+                                    return false;
+                                }
                             }
                             admin.api.form(url, dataField, ok, no, ex, refresh);
 
@@ -1197,6 +1335,42 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                     });
                 }
 
+            },
+            import:function(){
+                var uploadList = document.querySelectorAll("[data-import]");
+                if (uploadList.length > 0){
+                    $.each(uploadList, function (i, v) {
+                        var clienWidth = $(this).attr('data-width'),
+                            clientHeight = $(this).attr('data-height'),
+                            dataFull = $(this).attr('data-full'),
+                            checkbox = $(this).attr('data-checkbox'),
+                            url = $(this).attr('data-import'),
+                            tableId = $(this).attr('data-table');
+                        // 监听上传事件
+                        upload.render({
+                            elem: this,
+                            url: admin.url(url),
+                            accept: 'file',
+                            exts: 'xlsx|xls',
+                            // 让多图上传模式下支持多选操作
+                            multiple: false,
+                            done: function (res) {
+                                if (res.code === 1) {
+                                    admin.msg.alert(res.msg, function () {
+                                        // table.reload(tableId);
+                                        location.reload();
+                                    })
+                                    // admin.msg.success(res.msg,function () {
+                                    //     table.reload(tableId);
+                                    // });
+                                } else {
+                                    admin.msg.error(res.msg);
+                                }
+                                return false;
+                            }
+                        });
+                    })
+                }
             },
             upload: function () {
                 var uploadList = document.querySelectorAll("[data-upload]");
@@ -1220,9 +1394,13 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                             url: admin.url(init.upload_url),
                             accept: 'file',
                             exts: exts,
+                            before: function(obj){//参数
+                                layer.load(2, { shade: [0.15, '#ccc'] });
+                            },
                             // 让多图上传模式下支持多选操作
                             multiple: (uploadNumber !== 'one') ? true : false,
                             done: function (res) {
+                                layer.closeAll();
                                 if (res.code === 1) {
                                     var url = res.data.url;
                                     if (uploadNumber !== 'one') {
@@ -1238,6 +1416,9 @@ define(["jquery", "tableSelect", "ckeditor"], function ($, tableSelect, undefine
                                     admin.msg.error(res.msg);
                                 }
                                 return false;
+                            },error: function(){
+                                layer.closeAll();
+                                //请求异常回调
                             }
                         });
 
